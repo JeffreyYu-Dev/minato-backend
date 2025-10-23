@@ -2,6 +2,7 @@ import { pgTable } from "drizzle-orm/pg-core";
 import { createdAt, id, updatedAt } from "./helper";
 import { date } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
+import { timestampMap } from "./timestampMap";
 
 export const timestampTable = pgTable("timestamps", {
   id,
@@ -14,7 +15,7 @@ export const timestampTable = pgTable("timestamps", {
 export const timestampRelations = relations(
   timestampTable,
   ({ one, many }) => ({
-    event: many(timestampTable),
-    task: one(timestampTable),
+    event: many(timestampMap),
+    task: one(timestampMap),
   })
 );

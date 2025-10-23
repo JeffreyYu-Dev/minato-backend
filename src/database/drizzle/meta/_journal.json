@@ -15,6 +15,13 @@
       "when": 1760721137819,
       "tag": "0001_marvelous_rachel_grey",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1760735927603,
+      "tag": "0002_daffy_crusher_hogan",
+      "breakpoints": true
     }
   ]
 }

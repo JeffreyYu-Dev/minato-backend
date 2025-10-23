@@ -1,4 +1,4 @@
-import { pgTable, uuid } from "drizzle-orm/pg-core";
+import { date, pgTable, uuid } from "drizzle-orm/pg-core";
 import { createdAt, id, updatedAt } from "./helper";
 import { varchar } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
@@ -7,10 +7,13 @@ import { timestampMap } from "./timestampMap";
 
 export const taskTable = pgTable("tasks", {
   id,
-  categoryId: uuid("category_id").notNull(),
+  categoryId: uuid("category_id")
+    .notNull()
+    .references(() => categoryTable.id, { onDelete: "cascade" }),
   title: varchar("title", { length: 256 }).notNull(),
-  description: varchar("description").notNull(),
-  location: varchar("location").notNull(),
+  description: varchar("description"),
+  location: varchar("location"),
+  dueDate: date("due_date"),
   createdAt,
   updatedAt,
 });

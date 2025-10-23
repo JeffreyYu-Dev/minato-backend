@@ -9,9 +9,12 @@ import { eventTable } from "./event";
 
 export const categoryTable = pgTable("categories", {
   id,
-  calendarId: uuid("calendarId").notNull(),
+  calendarId: uuid("calendarId")
+    .notNull()
+    .references(() => calendarTable.id, { onDelete: "cascade" }),
   title: varchar("title", { length: 256 }).notNull(),
   enabled: boolean("enabled").notNull(),
+  colour: varchar("colour"),
   createdAt,
   updatedAt,
 });

@@ -8,8 +8,11 @@ import { categoryTable } from "./category";
 
 export const calendarTable = pgTable("calendars", {
   id,
-  owner: uuid("owner").notNull(),
+  owner: uuid("owner")
+    .notNull()
+    .references(() => userTable.id, { onDelete: "cascade" }),
   title: varchar("title", { length: 256 }).notNull(),
+  colour: varchar("colour"),
   createdAt,
   updatedAt,
 });

@@ -7,12 +7,30 @@ const app = new Hono();
 
 // fetch calendar, task, events, members, group settings
 app.get("/", async (c) => {
-  const calendarId = "123";
-  await db.query.calendarTable.findMany({
+  const { calendarId } = c.req.query();
+  const payload = c.get("jwtPayload");
+
+  const calendar = await db.query.calendarTable.findFirst({
     where: eq(calendarTable.id, calendarId),
     with: {
-      owner: true,
-      group: true,
+      owner: {
+        columns: {
+          password: false,
+        },
+      },
+      group: {
+        with: {
+          members: {
+            with: {
+              user: {
+                columns: {
+                  password: false,
+                },
+              },
+            },
+          },
+        },
+      },
       categories: {
         with: {
           tasks: {
@@ -29,6 +47,39 @@ app.get("/", async (c) => {
       },
     },
   });
+
+  if (!calendar)
+    return c.json({ success: false, error: "Calender not found" }, 404);
+  // TODO: add for group members too
+  // look for owner
+  if (calendar?.owner?.id !== payload.id)
+    return c.json(
+      { success: false, error: "User isn't authorized to get calendar" },
+      401
+    );
+
+  return c.json(calendar);
+});
+
+app.get("/all", async (c) => {
+  const payload = c.get("jwtPayload");
+
+  const allCalendars = await db.query.calendarTable.findMany({
+    where: eq(calendarTable.owner, payload.id),
+    columns: {
+      owner: false,
+    },
+    with: {
+      categories: {
+        with: {
+          tasks: true,
+          events: true,
+        },
+      },
+    },
+  });
+
+  return c.json(allCalendars);
 });
 
 // get all tasks

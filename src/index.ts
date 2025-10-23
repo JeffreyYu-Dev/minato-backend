@@ -3,6 +3,7 @@ import register from "./routes/auth/auth";
 import { jwt } from "hono/jwt";
 import { env } from "./config/env";
 import test from "./routes/api/test";
+import Calendar from "./routes/api/calendar";
 
 const app = new Hono();
 
@@ -14,7 +15,9 @@ app.use(
 );
 
 app.route("/auth", register);
-app.route("/api", test);
+app.route("/api/calendar", Calendar);
+
+app.get("/", (c) => c.json({ message: "Hello, Hono!" }));
 
 export default {
   port: 3000,

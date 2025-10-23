@@ -8,7 +8,9 @@ import { memberTable } from "./member";
 
 export const groupTable = pgTable("groups", {
   id,
-  calendar_id: uuid("calendar_id").notNull(),
+  calendar_id: uuid("calendar_id")
+    .notNull()
+    .references(() => calendarTable.id, { onDelete: "cascade" }),
   code: varchar("code", { length: 8 }),
   createdAt,
   updatedAt,

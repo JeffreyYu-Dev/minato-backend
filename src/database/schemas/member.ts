@@ -9,7 +9,9 @@ export const permissionEnum = pgEnum("permission", ["read", "full-access"]);
 
 export const memberTable = pgTable("members", {
   id,
-  groupId: uuid("group_id").notNull(),
+  groupId: uuid("group_id")
+    .notNull()
+    .references(() => groupTable.id, { onDelete: "cascade" }),
   userId: uuid("user_id").notNull(),
   permission: permissionEnum().notNull().default("read"),
   createdAt,

@@ -9,8 +9,12 @@ import { timestampTable } from "./timestamp";
 export const timestampMap = pgTable(
   "timestamp_map",
   {
-    id: uuid("id"),
-    timestampId: uuid("timestamp_id"),
+    id: uuid("id")
+      .notNull()
+      .references(() => eventTable.id, { onDelete: "cascade" }),
+    timestampId: uuid("timestamp_id")
+      .notNull()
+      .references(() => timestampTable.id, { onDelete: "cascade" }),
     createdAt,
     updatedAt,
   },

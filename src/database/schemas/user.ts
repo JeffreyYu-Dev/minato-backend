@@ -6,6 +6,7 @@ import { calendarTable } from "./calendar";
 import { recoveryCodeTable } from "./recovery-codes";
 import { memberTable } from "./member";
 
+// TODO: CASCASESDE on delete for related tables
 export const userTable = pgTable("users", {
   id,
   //   email: varchar("email", { length: 256 }).notNull().unique(),

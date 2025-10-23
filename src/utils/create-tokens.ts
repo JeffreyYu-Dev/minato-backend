@@ -15,7 +15,7 @@ export async function createTokens(
   firstName: string,
   lastName: string
 ): Promise<[string, string]> {
-  const tokenExp = Math.floor(Date.now() / 1000) + 15;
+  const tokenExp = Math.floor(Date.now() / 1000) + 60 * 15;
   const refreshTokenExp = Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 30;
 
   const user = {

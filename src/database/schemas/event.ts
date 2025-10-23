@@ -8,11 +8,13 @@ import { timestampMap } from "./timestampMap";
 
 export const eventTable = pgTable("events", {
   id,
-  categoryId: uuid("category_id").notNull(),
+  categoryId: uuid("category_id")
+    .notNull()
+    .references(() => categoryTable.id, { onDelete: "cascade" }),
   title: varchar("title", { length: 256 }).notNull(),
-  description: varchar("description").notNull(),
-  location: varchar("location").notNull(),
-  dueDate: date("due_date").notNull(),
+  description: varchar("description"),
+  location: varchar("location"),
+  dueDate: date("due_date"),
   createdAt,
   updatedAt,
 });

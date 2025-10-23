@@ -1,4 +1,4 @@
-import { pgTable, uuid } from "drizzle-orm/pg-core";
+import { pgTable, uuid, boolean } from "drizzle-orm/pg-core";
 import { createdAt, updatedAt } from "./helper";
 import { varchar } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
@@ -8,8 +8,11 @@ import { userTable } from "./user";
 export const recoveryCodeTable = pgTable(
   "recovery_codes",
   {
-    userId: uuid("id"),
-    code: varchar("code", { length: 12 }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => userTable.id, { onDelete: "cascade" }),
+    code: varchar("code", { length: 15 }).notNull(),
+    used: boolean("used").default(false),
     createdAt,
     updatedAt,
   },
