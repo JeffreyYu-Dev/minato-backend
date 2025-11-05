@@ -1,7 +1,8 @@
 import { Hono } from "hono";
 import { db } from "../../database/db";
 import { eq } from "drizzle-orm";
-import { calendarTable, taskTable } from "../../database/schema";
+import { calendarTable, categoryTable, taskTable } from "../../database/schema";
+import isOwner from "../../utils/isOwner";
 
 const app = new Hono();
 
@@ -52,13 +53,101 @@ app.get("/", async (c) => {
     return c.json({ success: false, error: "Calender not found" }, 404);
   // TODO: add for group members too
   // look for owner
-  if (calendar?.owner?.id !== payload.id)
+  if (isOwner(calendar?.owner?.id, payload.id))
     return c.json(
       { success: false, error: "User isn't authorized to get calendar" },
       401
     );
 
   return c.json(calendar);
+});
+
+app.get("/category", async (c) => {
+  const { calendarId, categoryId } = c.req.query();
+  const payload = c.get("jwtPayload");
+
+  const calendar = await db.query.calendarTable.findFirst({
+    where: eq(calendarTable.id, calendarId),
+    columns: {
+      id: true,
+      owner: true,
+    },
+
+    with: {
+      categories: true,
+    },
+  });
+
+  if (!calendar?.id) return c.json({ success: false });
+  if (!isOwner(calendar.owner, payload.id)) {
+    return c.json(
+      {
+        success: false,
+        error: "User isn't authorized to get category from calendar",
+      },
+      401
+    );
+  }
+
+  console.log(calendar);
+
+  //   TODO: filter for the category
+
+  return c.text("aosidjoaijsd");
+});
+
+app.post("/category", async (c) => {
+  const { calendarId } = c.req.query();
+  const { title, colour } = await c.req.json();
+  const payload = c.get("jwtPayload");
+
+  // need to get the calendar then insert a new category into it
+  const calendar = await db.query.calendarTable.findFirst({
+    where: eq(calendarTable.id, calendarId),
+    columns: {
+      id: true,
+      owner: true,
+    },
+  });
+
+  if (!calendar?.id) return c.json({ success: false });
+  if (!isOwner(calendar.owner, payload.id)) {
+    return c.json(
+      { success: false, error: "User isn't authorized to get calendar" },
+      401
+    );
+  }
+
+  const insertedCategory = await db
+    .insert(categoryTable)
+    .values({
+      calendarId: calendar.id,
+      title,
+      enabled: true,
+      colour,
+    })
+    .returning({
+      id: categoryTable.id,
+    });
+
+  if (!insertedCategory) return c.json({ success: false });
+
+  return c.json({ success: true, id: insertedCategory[0].id });
+});
+
+app.patch("/category", async (c) => {
+  const { calendarId } = c.req.query();
+
+  const payload = c.get("jwtPayload");
+
+  return c.json({ title: "hi" });
+});
+
+app.delete("/category", async (c) => {
+  const { calendarId } = c.req.query();
+
+  const payload = c.get("jwtPayload");
+  return c.json({ title: "hi" });
 });
 
 app.get("/all", async (c) => {

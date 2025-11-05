@@ -8,10 +8,11 @@
     "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
+    "@neondatabase/serverless": "^1.0.2",
     "@types/bcrypt": "^6.0.0",
     "bcrypt": "^6.0.0",
     "dotenv": "^17.2.2",
-    "drizzle-orm": "^0.44.5",
+    "drizzle-orm": "^0.44.7",
     "hono": "^4.9.7",
     "ioredis": "^5.8.0",
     "pg": "^8.16.3",

@@ -1,11 +1,5 @@
-import { drizzle } from "drizzle-orm/node-postgres";
 import { env } from "../config/env";
 import * as schema from "./schema";
+import { drizzle } from "drizzle-orm/neon-http";
 
-export const db = drizzle({
-  connection: {
-    connectionString: env.DATABASE_URL,
-    ssl: true,
-  },
-  schema,
-});
+export const db = drizzle(env.DATABASE_URL, { schema });

@@ -241,6 +241,7 @@ app.get("/token/:token/valid", async (c) => {
   const { token } = c.req.param();
   try {
     const payload = await verifyRefreshToken(token);
+
     const { id } = payload;
     const calendars = await db.query.calendarTable.findMany({
       where: eq(calendarTable.owner, id as string),
@@ -260,6 +261,7 @@ app.get("/token/:token/valid", async (c) => {
     return c.json(
       {
         valid: true,
+
         session: {
           userId: payload.id,
           username: payload.username,

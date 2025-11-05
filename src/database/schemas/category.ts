@@ -14,7 +14,7 @@ export const categoryTable = pgTable("categories", {
     .references(() => calendarTable.id, { onDelete: "cascade" }),
   title: varchar("title", { length: 256 }).notNull(),
   enabled: boolean("enabled").notNull(),
-  colour: varchar("colour"),
+  colour: varchar("colour").notNull(),
   createdAt,
   updatedAt,
 });
