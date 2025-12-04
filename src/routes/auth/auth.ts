@@ -57,6 +57,7 @@ app.post("/register", async (c) => {
     await db.insert(calendarTable).values({
       owner: newUser[0].id,
       title: "My Calendar",
+      colour:"#7287fd"
     });
 
     const [token, refreshToken] = await createTokens(

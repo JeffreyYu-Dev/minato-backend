@@ -14,6 +14,7 @@ export const userTable = pgTable("users", {
   password: varchar("password", { length: 512 }).notNull(),
   firstName: varchar("first_name", { length: 256 }).notNull(),
   lastName: varchar("last_name", { length: 256 }).notNull(),
+  theme:varchar("theme",{length:20}),
   createdAt,
   updatedAt,
 });
