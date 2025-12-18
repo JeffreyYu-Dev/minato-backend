@@ -1,71 +1,54 @@
-import { Hono } from "hono";
-import { db } from "../../database/db";
-import { eq } from "drizzle-orm";
-import {
-  calendarTable,
-  recoveryCodeTable,
-  userTable,
-} from "../../database/schema";
-import { validateRegisterCredentials } from "../../utils/validation-register-credentials";
-import hashPassword from "../../utils/hash-password";
-import { validateLoginCredentials } from "../../utils/validation-login-credentials";
-import { verifyPassword } from "../../utils/verify-password";
-import { createTokens, TokenPayload } from "../../utils/create-tokens";
-import {
-  addRefreshToken,
-  invalidateRefreshToken,
-  isExistingRefreshKey,
-} from "../../cache/functions/jwt-tokens";
-import { verifyRefreshToken } from "../../utils/verify-tokens";
-import generateRecoveryCodes from "./generate-recovery-codes";
+import {and, eq} from 'drizzle-orm';
+import {Hono} from 'hono';
+
+import {addRefreshToken, invalidateRefreshToken, isExistingRefreshKey,} from '../../cache/functions/jwt-tokens';
+import {db} from '../../database/db';
+import {calendarTable, recoveryCodeTable, userTable,} from '../../database/schema';
+import {createTokens, TokenPayload} from '../../utils/create-tokens';
+import hashPassword from '../../utils/hash-password';
+import {validateLoginCredentials} from '../../utils/validation-login-credentials';
+import {validateRegisterCredentials} from '../../utils/validation-register-credentials';
+import {verifyPassword} from '../../utils/verify-password';
+import {verifyRefreshToken} from '../../utils/verify-tokens';
+
+import generateRecoveryCodes from './functions/generate-recovery-codes';
 
 const app = new Hono();
 
-app.post("/register", async (c) => {
+app.post('/register', async (c) => {
   try {
-    const { username, password, firstName, lastName } = await c.req.json();
+    const {username, password, firstName, lastName} = await c.req.json();
 
     if (!username || !password) {
-      return c.json({ success: false, error: "Missing Fields!" }, 400);
+      return c.json({success: false, error: 'Missing Fields!'}, 400);
     }
-    const { success, data, error } = validateRegisterCredentials(
-      username,
-      password,
-      firstName,
-      lastName
-    );
+    const {success, data, error} =
+        validateRegisterCredentials(username, password, firstName, lastName);
 
-    if (!success) return c.json({ success: false, error }, 400);
+    if (!success) return c.json({success: false, error}, 400);
 
     const userExists = await db.query.userTable.findFirst({
       where: eq(userTable.username, data.username),
     });
 
     if (userExists)
-      return c.json({ success: false, error: "Username already exists!" }, 409);
+      return c.json({success: false, error: 'Username already exists!'}, 409);
 
-    const newUser = await db
-      .insert(userTable)
-      .values({
-        ...data,
-        password: await hashPassword(data.password),
-      })
-      .returning({ id: userTable.id });
+    const newUser = await db.insert(userTable)
+                        .values({
+                          ...data,
+                          password: await hashPassword(data.password),
+                        })
+                        .returning({id: userTable.id});
 
     //   create personal calendar
 
-    await db.insert(calendarTable).values({
-      owner: newUser[0].id,
-      title: "My Calendar",
-      colour:"#7287fd"
-    });
+    await db.insert(calendarTable)
+        .values(
+            {owner: newUser[0].id, title: 'My Calendar', colour: '#7287fd'});
 
-    const [token, refreshToken] = await createTokens(
-      newUser[0].id,
-      username,
-      firstName,
-      lastName
-    );
+    const [token, refreshToken] =
+        await createTokens(newUser[0].id, username, firstName, lastName);
 
     await addRefreshToken(newUser[0].id, refreshToken);
 
@@ -113,12 +96,12 @@ app.post("/register", async (c) => {
       calendars,
     });
   } catch (error) {
-    return c.json({ success: false, error }, 500);
+    return c.json({success: false, error}, 500);
   }
 });
 
-app.post("/login", async (c) => {
-  const { username, password } = await c.req.json();
+app.post('/login', async (c) => {
+  const {username, password} = await c.req.json();
   console.log(username, password);
   const {
     success,
@@ -126,26 +109,23 @@ app.post("/login", async (c) => {
     error,
   } = validateLoginCredentials(username, password);
 
-  if (!success) return c.json({ success: false, error }, 400);
+  if (!success) return c.json({success: false, error}, 400);
 
   const existingUser = await db.query.userTable.findFirst({
     where: eq(userTable.username, user.username),
   });
   if (!existingUser) {
-    console.log("user not found");
-    return c.json({ success: false, error: "User does not exist!" }, 404);
+    console.log('user not found');
+    return c.json({success: false, error: 'User does not exist!'}, 404);
   }
   const verified = await verifyPassword(user.password, existingUser.password);
 
   if (!verified)
-    return c.json({ success: false, error: "Invalid password" }, 401);
+    return c.json({success: false, error: 'Invalid password'}, 401);
 
   const [token, refreshToken] = await createTokens(
-    existingUser.id,
-    existingUser.username,
-    existingUser.firstName,
-    existingUser.lastName
-  );
+      existingUser.id, existingUser.username, existingUser.firstName,
+      existingUser.lastName);
 
   //   add token to redis
 
@@ -182,68 +162,64 @@ app.post("/login", async (c) => {
   });
 });
 
-app.delete("/logout", async (c) => {
-  const { userId, refreshToken } = c.req.query();
+app.delete('/logout', async (c) => {
+  const {userId, refreshToken} = c.req.query();
 
   //   const { refreshToken } = await c.req.json();
   try {
     if (refreshToken) {
       const token = await verifyRefreshToken(refreshToken);
-      const { id } = token as unknown as TokenPayload;
+      const {id} = token as unknown as TokenPayload;
       const doesExist = await isExistingRefreshKey(id, refreshToken);
 
-      if (!doesExist) return c.json({ sucess: true }, 200);
+      if (!doesExist) return c.json({sucess: true}, 200);
 
       await invalidateRefreshToken(id, refreshToken);
     }
   } catch (error) {
-    console.log("Invalid refresh token");
-    return c.json({ success: false }, 200);
+    console.log('Invalid refresh token');
+    return c.json({success: false}, 200);
   }
 
-  return c.json({ success: true }, 200);
+  return c.json({success: true}, 200);
 });
 
-app.post("/token", async (c) => {
-  const { refreshToken } = await c.req.json();
-  if (!refreshToken) return c.json({ error: "No Refresh token" }, 401);
+app.post('/token', async (c) => {
+  const {refreshToken} = await c.req.json();
+  if (!refreshToken) return c.json({error: 'No Refresh token'}, 401);
 
   try {
     const token = await verifyRefreshToken(refreshToken);
-    const { id, firstName, lastName, username } =
-      token as unknown as TokenPayload;
+    const {id, firstName, lastName, username} =
+        token as unknown as TokenPayload;
 
     const doesExist = await isExistingRefreshKey(id, refreshToken);
 
-    if (!doesExist) return c.json({ error: "INVALID REFRESH TOKEN" }, 403);
+    if (!doesExist) return c.json({error: 'INVALID REFRESH TOKEN'}, 403);
 
     await invalidateRefreshToken(id, refreshToken);
 
-    const [newToken, newRefreshToken] = await createTokens(
-      id,
-      username,
-      firstName,
-      lastName
-    );
+    const [newToken, newRefreshToken] =
+        await createTokens(id, username, firstName, lastName);
 
     await addRefreshToken(id, newRefreshToken);
 
     return c.json({
       token: newToken,
-      refresh: newRefreshToken,
+      refreshToken: newRefreshToken,
     });
   } catch (error) {
-    console.log("something went wrong", error);
-    return c.json({ error: "INVALID REFRESH TOKEN" }, 403);
+    console.log('something went wrong', error);
+    return c.json({error: 'INVALID REFRESH TOKEN'}, 403);
   }
 });
 
-app.get("/token/:token/valid", async (c) => {
-  const { token } = c.req.param();
+app.get('/token/:token/valid', async (c) => {
+  const {token} = c.req.param();
   try {
     const payload = await verifyRefreshToken(token);
 
-    const { id } = payload;
+    const {id} = payload;
     const calendars = await db.query.calendarTable.findMany({
       where: eq(calendarTable.owner, id as string),
       columns: {
@@ -260,21 +236,76 @@ app.get("/token/:token/valid", async (c) => {
     });
 
     return c.json(
-      {
-        valid: true,
+        {
+          valid: true,
 
-        session: {
-          userId: payload.id,
-          username: payload.username,
-          firstName: payload.firstName,
-          lastName: payload.lastName,
+          session: {
+            userId: payload.id,
+            username: payload.username,
+            firstName: payload.firstName,
+            lastName: payload.lastName,
+          },
+          calendars,
         },
-        calendars,
-      },
-      200
-    );
+        200);
   } catch (error) {
-    return c.json({ valid: false }, 200);
+    return c.json({valid: false}, 200);
+  }
+});
+app.post('/password-recovery', async (c) => {
+  try {
+    const {username, recoveryCode, newPassword} = await c.req.json();
+
+    if (!username || !recoveryCode || !newPassword) {
+      return c.json({success: false, error: 'Missing fields!'}, 400);
+    }
+
+    if (!newPassword || newPassword.trim().length === 0) {
+      return c.json({success: false, error: 'Password cannot be empty!'}, 400);
+    }
+
+    // Find user by username
+    const user = await db.query.userTable.findFirst({
+      where: eq(userTable.username, username),
+    });
+
+    if (!user) {
+      return c.json({success: false, error: 'User not found!'}, 404);
+    }
+
+    // Find recovery code for this user that matches and is not used
+    const recoveryCodeRecord = await db.query.recoveryCodeTable.findFirst({
+      where:
+          and(eq(recoveryCodeTable.userId, user.id),
+              eq(recoveryCodeTable.code, recoveryCode.toUpperCase()),
+              eq(recoveryCodeTable.used, false)),
+    });
+
+    if (!recoveryCodeRecord) {
+      return c.json(
+          {success: false, error: 'Invalid or already used recovery code!'},
+          400);
+    }
+
+    // Hash the new password
+    const hashedPassword = await hashPassword(newPassword);
+
+    // Update user's password
+    await db.update(userTable)
+        .set({password: hashedPassword})
+        .where(eq(userTable.id, user.id));
+
+    // Mark recovery code as used
+    await db.update(recoveryCodeTable)
+        .set({used: true})
+        .where(
+            and(eq(recoveryCodeTable.userId, user.id),
+                eq(recoveryCodeTable.code, recoveryCode.toUpperCase())));
+
+    return c.json({success: true}, 200);
+  } catch (error) {
+    console.log('Recovery code error:', error);
+    return c.json({success: false, error: 'Internal server error'}, 500);
   }
 });
 
