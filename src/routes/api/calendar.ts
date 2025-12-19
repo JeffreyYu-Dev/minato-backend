@@ -540,8 +540,18 @@ app.get("/all", async (c) => {
     },
   });
 
+  // Filter out group calendars where user is not a member (even if they're the owner)
+  const filteredCalendars = allCalendars.filter((calendar) => {
+    // If it's not a group calendar, include it if user is the owner
+    if (!calendar.group) {
+      return calendar.owner?.id === payload.id;
+    }
+    // If it's a group calendar, only include it if user is a member
+    return groupCalendarIds.includes(calendar.id);
+  });
+
   // Add isOwner flag to each member in group calendars
-  const calendarsWithOwnerInfo = allCalendars.map((calendar) => {
+  const calendarsWithOwnerInfo = filteredCalendars.map((calendar) => {
     if (calendar.group && calendar.group.members) {
       return {
         ...calendar,

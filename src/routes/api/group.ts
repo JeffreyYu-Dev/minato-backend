@@ -245,8 +245,18 @@ app.post("/join", async (c) => {
       },
     });
 
+    // Filter out group calendars where user is not a member (even if they're the owner)
+    const filteredCalendars = calendars.filter((calendar) => {
+      // If it's not a group calendar, include it if user is the owner
+      if (!calendar.group) {
+        return calendar.owner?.id === payload.id;
+      }
+      // If it's a group calendar, only include it if user is a member
+      return groupCalendarIds.includes(calendar.id);
+    });
+
     // Add isOwner flag to each member in group calendars
-    const calendarsWithOwnerInfo = calendars.map((calendar) => {
+    const calendarsWithOwnerInfo = filteredCalendars.map((calendar) => {
       if (calendar.group && calendar.group.members) {
         return {
           ...calendar,
@@ -578,10 +588,113 @@ app.delete("/leave", async (c) => {
         )
       );
 
+    // Get updated calendar IDs from groups where user is still a member
+    const userMemberships = await db.query.memberTable.findMany({
+      where: eq(memberTable.userId, payload.id),
+      with: {
+        group: true,
+      },
+    });
+
+    const groupCalendarIds = userMemberships
+      .map((membership) => membership.group?.calendar_id)
+      .filter((id): id is string => id !== undefined);
+
+    // Query calendars where user is owner OR calendar is in a group where user is a member
+    const calendars = await db.query.calendarTable.findMany({
+      where:
+        groupCalendarIds.length > 0
+          ? or(
+              eq(calendarTable.owner, payload.id),
+              inArray(calendarTable.id, groupCalendarIds)
+            )
+          : eq(calendarTable.owner, payload.id),
+      with: {
+        owner: {
+          columns: {
+            password: false,
+          },
+        },
+        group: {
+          with: {
+            members: {
+              with: {
+                user: {
+                  columns: {
+                    password: false,
+                  },
+                },
+              },
+            },
+          },
+        },
+        categories: {
+          with: {
+            tasks: {
+              with: {
+                timestamps: {
+                  with: {
+                    timestamp: true,
+                  },
+                },
+              },
+            },
+            events: {
+              with: {
+                timestamps: {
+                  with: {
+                    timestamp: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    // Filter out group calendars where user is not a member (even if they're the owner)
+    const filteredCalendars = calendars.filter((calendar) => {
+      // If it's not a group calendar, include it if user is the owner
+      if (!calendar.group) {
+        return calendar.owner?.id === payload.id;
+      }
+      // If it's a group calendar, only include it if user is a member
+      return groupCalendarIds.includes(calendar.id);
+    });
+
+    // Add isOwner flag to each member in group calendars
+    const calendarsWithOwnerInfo = filteredCalendars.map((calendar) => {
+      if (calendar.group && calendar.group.members) {
+        return {
+          ...calendar,
+          group: {
+            ...calendar.group,
+            members: calendar.group.members.map((member) => ({
+              ...member,
+              isOwner: member.userId === calendar.owner?.id,
+            })),
+          },
+        };
+      }
+      return calendar;
+    });
+
+    // Sort calendars so "My Calendar" appears first
+    const sortedCalendars = calendarsWithOwnerInfo.sort((a, b) => {
+      if (a.title === "My Calendar" && b.title !== "My Calendar") return -1;
+      if (a.title !== "My Calendar" && b.title === "My Calendar") return 1;
+      return 0;
+    });
+
+    // Remove owner field from response (keep it only for the comparison above)
+    const responseCalendars = sortedCalendars.map(({ owner, ...rest }) => rest);
+
     return c.json(
       {
         success: true,
         message: "Successfully left the group",
+        calendars: responseCalendars,
       },
       200
     );
