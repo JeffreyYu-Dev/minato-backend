@@ -285,6 +285,108 @@ app.post("/join", async (c) => {
   }
 });
 
+// update group calendar color
+app.patch("/", async (c) => {
+  try {
+    const { calendarId } = c.req.query();
+    const { colour } = await c.req.json();
+    const payload = c.get("jwtPayload");
+
+    if (!calendarId || typeof calendarId !== "string") {
+      return c.json(
+        {
+          success: false,
+          error: "calendarId is required as a query parameter",
+        },
+        400
+      );
+    }
+
+    if (!colour || typeof colour !== "string") {
+      return c.json(
+        {
+          success: false,
+          error: "colour is required and must be a string",
+        },
+        400
+      );
+    }
+
+    // Get the calendar and verify it's a group calendar
+    const calendar = await db.query.calendarTable.findFirst({
+      where: eq(calendarTable.id, calendarId),
+      with: {
+        group: true,
+      },
+    });
+
+    if (!calendar) {
+      return c.json({ success: false, error: "Calendar not found" }, 404);
+    }
+
+    if (!calendar.group) {
+      return c.json(
+        { success: false, error: "Calendar is not a group calendar" },
+        400
+      );
+    }
+
+    // Check if user is the owner or has full-access permission
+    const isCalendarOwner = calendar.owner === payload.id;
+
+    let hasFullAccess = false;
+    if (!isCalendarOwner) {
+      const userMembership = await db.query.memberTable.findFirst({
+        where: and(
+          eq(memberTable.groupId, calendar.group.id),
+          eq(memberTable.userId, payload.id)
+        ),
+      });
+
+      hasFullAccess = userMembership?.permission === "full-access";
+    }
+
+    if (!isCalendarOwner && !hasFullAccess) {
+      return c.json(
+        {
+          success: false,
+          error: "You don't have permission to update the calendar color",
+        },
+        403
+      );
+    }
+
+    // Update the calendar's colour
+    const updatedCalendar = await db
+      .update(calendarTable)
+      .set({ colour: colour.trim() })
+      .where(eq(calendarTable.id, calendarId))
+      .returning({
+        id: calendarTable.id,
+        title: calendarTable.title,
+        colour: calendarTable.colour,
+      });
+
+    if (!updatedCalendar || updatedCalendar.length === 0) {
+      return c.json(
+        { success: false, error: "Failed to update calendar color" },
+        500
+      );
+    }
+
+    return c.json(
+      {
+        success: true,
+        calendar: updatedCalendar[0],
+      },
+      200
+    );
+  } catch (error) {
+    console.log("Update group calendar color error:", error);
+    return c.json({ success: false, error: "Internal server error" }, 500);
+  }
+});
+
 // update a group member's permission
 app.patch("/member", async (c) => {
   try {
@@ -402,6 +504,89 @@ app.patch("/member", async (c) => {
     );
   } catch (error) {
     console.log("Update member permission error:", error);
+    return c.json({ success: false, error: "Internal server error" }, 500);
+  }
+});
+
+// leave a group
+app.delete("/leave", async (c) => {
+  try {
+    const { calendarId } = c.req.query();
+    const payload = c.get("jwtPayload");
+
+    if (!calendarId || typeof calendarId !== "string") {
+      return c.json(
+        {
+          success: false,
+          error: "calendarId is required as a query parameter",
+        },
+        400
+      );
+    }
+
+    // Get the calendar and verify it's a group calendar
+    const calendar = await db.query.calendarTable.findFirst({
+      where: eq(calendarTable.id, calendarId),
+      with: {
+        group: true,
+      },
+    });
+
+    if (!calendar) {
+      return c.json({ success: false, error: "Calendar not found" }, 404);
+    }
+
+    if (!calendar.group) {
+      return c.json(
+        { success: false, error: "Calendar is not a group calendar" },
+        400
+      );
+    }
+
+    // Check if user is a member of the group
+    const userMembership = await db.query.memberTable.findFirst({
+      where: and(
+        eq(memberTable.groupId, calendar.group.id),
+        eq(memberTable.userId, payload.id)
+      ),
+    });
+
+    if (!userMembership) {
+      return c.json(
+        { success: false, error: "You are not a member of this group" },
+        404
+      );
+    }
+
+    // Prevent the owner from leaving the group (or handle this differently if needed)
+    // For now, we'll allow anyone to leave, including the owner
+    // If you want to prevent owner from leaving, uncomment the following:
+    // if (calendar.owner === payload.id) {
+    //   return c.json(
+    //     { success: false, error: "Group owner cannot leave the group" },
+    //     400
+    //   );
+    // }
+
+    // Remove the user from the group
+    await db
+      .delete(memberTable)
+      .where(
+        and(
+          eq(memberTable.groupId, calendar.group.id),
+          eq(memberTable.userId, payload.id)
+        )
+      );
+
+    return c.json(
+      {
+        success: true,
+        message: "Successfully left the group",
+      },
+      200
+    );
+  } catch (error) {
+    console.log("Leave group error:", error);
     return c.json({ success: false, error: "Internal server error" }, 500);
   }
 });

@@ -166,14 +166,31 @@ app.get("/category", async (c) => {
       id: true,
       owner: true,
     },
-
     with: {
       categories: true,
+      group: true,
     },
   });
 
   if (!calendar?.id) return c.json({ success: false });
-  if (!isOwner(calendar.owner, payload.id)) {
+
+  // Check if user is the owner
+  const isCalendarOwner = isOwner(calendar.owner, payload.id);
+
+  // If not owner, check if user is a group member with full-access
+  let hasFullAccess = false;
+  if (!isCalendarOwner && calendar.group) {
+    const userMembership = await db.query.memberTable.findFirst({
+      where: and(
+        eq(memberTable.groupId, calendar.group.id),
+        eq(memberTable.userId, payload.id)
+      ),
+    });
+
+    hasFullAccess = userMembership?.permission === "full-access";
+  }
+
+  if (!isCalendarOwner && !hasFullAccess) {
     return c.json(
       {
         success: false,
@@ -202,10 +219,30 @@ app.post("/category", async (c) => {
       id: true,
       owner: true,
     },
+    with: {
+      group: true,
+    },
   });
 
   if (!calendar?.id) return c.json({ success: false });
-  if (!isOwner(calendar.owner, payload.id)) {
+
+  // Check if user is the owner
+  const isCalendarOwner = isOwner(calendar.owner, payload.id);
+
+  // If not owner, check if user is a group member with full-access
+  let hasFullAccess = false;
+  if (!isCalendarOwner && calendar.group) {
+    const userMembership = await db.query.memberTable.findFirst({
+      where: and(
+        eq(memberTable.groupId, calendar.group.id),
+        eq(memberTable.userId, payload.id)
+      ),
+    });
+
+    hasFullAccess = userMembership?.permission === "full-access";
+  }
+
+  if (!isCalendarOwner && !hasFullAccess) {
     return c.json(
       { success: false, error: "User isn't authorized to get calendar" },
       401
@@ -230,18 +267,209 @@ app.post("/category", async (c) => {
 });
 
 app.patch("/category", async (c) => {
-  const { calendarId } = c.req.query();
+  try {
+    const { categoryId } = c.req.query();
+    const { title, colour } = await c.req.json();
+    const payload = c.get("jwtPayload");
 
-  const payload = c.get("jwtPayload");
+    if (!categoryId || typeof categoryId !== "string") {
+      return c.json(
+        {
+          success: false,
+          error: "categoryId is required as a query parameter",
+        },
+        400
+      );
+    }
 
-  return c.json({ title: "hi" });
+    // Verify category exists and user has access
+    const category = await db.query.categoryTable.findFirst({
+      where: eq(categoryTable.id, categoryId),
+      with: {
+        calendar: {
+          columns: {
+            id: true,
+            owner: true,
+          },
+          with: {
+            group: true,
+          },
+        },
+      },
+    });
+
+    if (!category) {
+      return c.json({ success: false, error: "Category not found" }, 404);
+    }
+
+    // Check if user is the owner
+    const isCalendarOwner = isOwner(category.calendar.owner, payload.id);
+
+    // If not owner, check if user is a group member with full-access
+    let hasFullAccess = false;
+    if (!isCalendarOwner && category.calendar.group) {
+      const userMembership = await db.query.memberTable.findFirst({
+        where: and(
+          eq(memberTable.groupId, category.calendar.group.id),
+          eq(memberTable.userId, payload.id)
+        ),
+      });
+
+      hasFullAccess = userMembership?.permission === "full-access";
+    }
+
+    if (!isCalendarOwner && !hasFullAccess) {
+      return c.json(
+        {
+          success: false,
+          error: "User isn't authorized to update this category",
+        },
+        401
+      );
+    }
+
+    // Build update object with only provided fields
+    const updateData: any = {};
+    if (title !== undefined) {
+      if (typeof title === "string" && title.trim().length > 0) {
+        updateData.title = title.trim();
+      } else {
+        return c.json(
+          {
+            success: false,
+            error: "Title must be a non-empty string",
+          },
+          400
+        );
+      }
+    }
+    if (colour !== undefined) {
+      if (typeof colour === "string") {
+        updateData.colour = colour.trim();
+      } else {
+        return c.json(
+          {
+            success: false,
+            error: "Colour must be a string",
+          },
+          400
+        );
+      }
+    }
+
+    // Check if there's anything to update
+    if (Object.keys(updateData).length === 0) {
+      return c.json(
+        {
+          success: false,
+          error: "At least one field (title or colour) must be provided",
+        },
+        400
+      );
+    }
+
+    // Update the category
+    const updatedCategory = await db
+      .update(categoryTable)
+      .set(updateData)
+      .where(eq(categoryTable.id, categoryId))
+      .returning();
+
+    if (!updatedCategory || updatedCategory.length === 0) {
+      return c.json(
+        { success: false, error: "Failed to update category" },
+        500
+      );
+    }
+
+    return c.json(
+      {
+        success: true,
+        category: updatedCategory[0],
+      },
+      200
+    );
+  } catch (error) {
+    console.log("Update category error:", error);
+    return c.json({ success: false, error: "Internal server error" }, 500);
+  }
 });
 
 app.delete("/category", async (c) => {
-  const { calendarId } = c.req.query();
+  try {
+    const { categoryId } = c.req.query();
+    const payload = c.get("jwtPayload");
 
-  const payload = c.get("jwtPayload");
-  return c.json({ title: "hi" });
+    if (!categoryId || typeof categoryId !== "string") {
+      return c.json(
+        {
+          success: false,
+          error: "categoryId is required as a query parameter",
+        },
+        400
+      );
+    }
+
+    // Verify category exists and user has access
+    const category = await db.query.categoryTable.findFirst({
+      where: eq(categoryTable.id, categoryId),
+      with: {
+        calendar: {
+          columns: {
+            id: true,
+            owner: true,
+          },
+          with: {
+            group: true,
+          },
+        },
+      },
+    });
+
+    if (!category) {
+      return c.json({ success: false, error: "Category not found" }, 404);
+    }
+
+    // Check if user is the owner
+    const isCalendarOwner = isOwner(category.calendar.owner, payload.id);
+
+    // If not owner, check if user is a group member with full-access
+    let hasFullAccess = false;
+    if (!isCalendarOwner && category.calendar.group) {
+      const userMembership = await db.query.memberTable.findFirst({
+        where: and(
+          eq(memberTable.groupId, category.calendar.group.id),
+          eq(memberTable.userId, payload.id)
+        ),
+      });
+
+      hasFullAccess = userMembership?.permission === "full-access";
+    }
+
+    if (!isCalendarOwner && !hasFullAccess) {
+      return c.json(
+        {
+          success: false,
+          error: "User isn't authorized to delete this category",
+        },
+        401
+      );
+    }
+
+    // Delete the category (cascade will handle events and tasks)
+    await db.delete(categoryTable).where(eq(categoryTable.id, categoryId));
+
+    return c.json(
+      {
+        success: true,
+        message: "Category deleted successfully",
+      },
+      200
+    );
+  } catch (error) {
+    console.log("Delete category error:", error);
+    return c.json({ success: false, error: "Internal server error" }, 500);
+  }
 });
 
 app.get("/all", async (c) => {
@@ -426,7 +654,7 @@ app.post("/event", async (c) => {
       return c.json({ success: false, error: "Category ID is required!" }, 400);
     }
 
-    // Verify user has access to the category (through calendar ownership)
+    // Verify user has access to the category (through calendar ownership or group membership)
     const category = await db.query.categoryTable.findFirst({
       where: eq(categoryTable.id, categoryId),
       with: {
@@ -434,6 +662,9 @@ app.post("/event", async (c) => {
           columns: {
             id: true,
             owner: true,
+          },
+          with: {
+            group: true,
           },
         },
       },
@@ -443,7 +674,23 @@ app.post("/event", async (c) => {
       return c.json({ success: false, error: "Category not found" }, 404);
     }
 
-    if (!isOwner(category.calendar.owner, payload.id)) {
+    // Check if user is the owner
+    const isCalendarOwner = isOwner(category.calendar.owner, payload.id);
+
+    // If not owner, check if user is a group member with full-access
+    let hasFullAccess = false;
+    if (!isCalendarOwner && category.calendar.group) {
+      const userMembership = await db.query.memberTable.findFirst({
+        where: and(
+          eq(memberTable.groupId, category.calendar.group.id),
+          eq(memberTable.userId, payload.id)
+        ),
+      });
+
+      hasFullAccess = userMembership?.permission === "full-access";
+    }
+
+    if (!isCalendarOwner && !hasFullAccess) {
       return c.json(
         {
           success: false,
@@ -640,6 +887,9 @@ app.patch("/event", async (c) => {
                 id: true,
                 owner: true,
               },
+              with: {
+                group: true,
+              },
             },
           },
         },
@@ -650,7 +900,23 @@ app.patch("/event", async (c) => {
       return c.json({ success: false, error: "Event not found" }, 404);
     }
 
-    if (!isOwner(event.category.calendar.owner, payload.id)) {
+    // Check if user is the owner
+    const isCalendarOwner = isOwner(event.category.calendar.owner, payload.id);
+
+    // If not owner, check if user is a group member with full-access
+    let hasFullAccess = false;
+    if (!isCalendarOwner && event.category.calendar.group) {
+      const userMembership = await db.query.memberTable.findFirst({
+        where: and(
+          eq(memberTable.groupId, event.category.calendar.group.id),
+          eq(memberTable.userId, payload.id)
+        ),
+      });
+
+      hasFullAccess = userMembership?.permission === "full-access";
+    }
+
+    if (!isCalendarOwner && !hasFullAccess) {
       return c.json(
         {
           success: false,
@@ -689,6 +955,9 @@ app.patch("/event", async (c) => {
               id: true,
               owner: true,
             },
+            with: {
+              group: true,
+            },
           },
         },
       });
@@ -697,7 +966,26 @@ app.patch("/event", async (c) => {
         return c.json({ success: false, error: "Category not found" }, 404);
       }
 
-      if (!isOwner(newCategory.calendar.owner, payload.id)) {
+      // Check if user is the owner
+      const isNewCategoryOwner = isOwner(
+        newCategory.calendar.owner,
+        payload.id
+      );
+
+      // If not owner, check if user is a group member with full-access
+      let hasNewCategoryFullAccess = false;
+      if (!isNewCategoryOwner && newCategory.calendar.group) {
+        const userMembership = await db.query.memberTable.findFirst({
+          where: and(
+            eq(memberTable.groupId, newCategory.calendar.group.id),
+            eq(memberTable.userId, payload.id)
+          ),
+        });
+
+        hasNewCategoryFullAccess = userMembership?.permission === "full-access";
+      }
+
+      if (!isNewCategoryOwner && !hasNewCategoryFullAccess) {
         return c.json(
           {
             success: false,
@@ -863,6 +1151,9 @@ app.delete("/event", async (c) => {
                   id: true,
                   owner: true,
                 },
+                with: {
+                  group: true,
+                },
               },
             },
           },
@@ -873,7 +1164,26 @@ app.delete("/event", async (c) => {
         return c.json({ success: false, error: "Event not found" }, 404);
       }
 
-      if (!isOwner(event.category.calendar.owner, payload.id)) {
+      // Check if user is the owner
+      const isCalendarOwner = isOwner(
+        event.category.calendar.owner,
+        payload.id
+      );
+
+      // If not owner, check if user is a group member with full-access
+      let hasFullAccess = false;
+      if (!isCalendarOwner && event.category.calendar.group) {
+        const userMembership = await db.query.memberTable.findFirst({
+          where: and(
+            eq(memberTable.groupId, event.category.calendar.group.id),
+            eq(memberTable.userId, payload.id)
+          ),
+        });
+
+        hasFullAccess = userMembership?.permission === "full-access";
+      }
+
+      if (!isCalendarOwner && !hasFullAccess) {
         return c.json(
           {
             success: false,
@@ -918,6 +1228,7 @@ app.delete("/event", async (c) => {
               },
             },
           },
+          group: true,
         },
       });
 
@@ -925,7 +1236,23 @@ app.delete("/event", async (c) => {
         return c.json({ success: false, error: "Calendar not found" }, 404);
       }
 
-      if (!isOwner(calendar.owner, payload.id)) {
+      // Check if user is the owner
+      const isCalendarOwner = isOwner(calendar.owner, payload.id);
+
+      // If not owner, check if user is a group member with full-access
+      let hasFullAccess = false;
+      if (!isCalendarOwner && calendar.group) {
+        const userMembership = await db.query.memberTable.findFirst({
+          where: and(
+            eq(memberTable.groupId, calendar.group.id),
+            eq(memberTable.userId, payload.id)
+          ),
+        });
+
+        hasFullAccess = userMembership?.permission === "full-access";
+      }
+
+      if (!isCalendarOwner && !hasFullAccess) {
         return c.json(
           {
             success: false,
