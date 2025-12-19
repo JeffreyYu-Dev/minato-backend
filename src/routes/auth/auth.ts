@@ -74,8 +74,24 @@ app.post('/register', async (c) => {
       with: {
         categories: {
           with: {
-            tasks: true,
-            events: true,
+            tasks: {
+              with: {
+                timestamps: {
+                  with: {
+                    timestamp: true,
+                  },
+                },
+              },
+            },
+            events: {
+              with: {
+                timestamps: {
+                  with: {
+                    timestamp: true,
+                  },
+                },
+              },
+            }
           },
         },
       },
@@ -139,8 +155,24 @@ app.post('/login', async (c) => {
     with: {
       categories: {
         with: {
-          tasks: true,
-          events: true,
+          tasks: {
+            with: {
+              timestamps: {
+                with: {
+                  timestamp: true,
+                },
+              },
+            },
+          },
+          events: {
+            with: {
+              timestamps: {
+                with: {
+                  timestamp: true,
+                },
+              },
+            },
+          }
         },
       },
     },
@@ -228,8 +260,24 @@ app.get('/token/:token/valid', async (c) => {
       with: {
         categories: {
           with: {
-            tasks: true,
-            events: true,
+            tasks: {
+              with: {
+                timestamps: {
+                  with: {
+                    timestamp: true,
+                  },
+                },
+              },
+            },
+            events: {
+              with: {
+                timestamps: {
+                  with: {
+                    timestamp: true,
+                  },
+                },
+              },
+            }
           },
         },
       },
