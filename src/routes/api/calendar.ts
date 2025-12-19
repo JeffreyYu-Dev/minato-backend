@@ -1,57 +1,71 @@
-import {and, eq, inArray} from 'drizzle-orm';
-import {Hono} from 'hono';
+import { and, eq, inArray, or } from "drizzle-orm";
+import { Hono } from "hono";
 
-import {db} from '../../database/db';
-import {calendarTable, categoryTable, eventTable, taskTable, timestampMap, timestampTable} from '../../database/schema';
-import isOwner from '../../utils/isOwner';
+import { db } from "../../database/db";
+import {
+  calendarTable,
+  categoryTable,
+  eventTable,
+  groupTable,
+  memberTable,
+  taskTable,
+  timestampMap,
+  timestampTable,
+} from "../../database/schema";
+import isOwner from "../../utils/isOwner";
 
 const app = new Hono();
 
 // create a new calendar
-app.post('/', async (c) => {
+app.post("/", async (c) => {
   try {
-    const {title, colour} = await c.req.json();
-    const payload = c.get('jwtPayload');
+    const { title, colour } = await c.req.json();
+    const payload = c.get("jwtPayload");
 
-    if (!title || typeof title !== 'string' || title.trim().length === 0) {
+    if (!title || typeof title !== "string" || title.trim().length === 0) {
       return c.json(
-          {
-            success: false,
-            error: 'Title is required and must be a non-empty string!'
-          },
-          400);
+        {
+          success: false,
+          error: "Title is required and must be a non-empty string!",
+        },
+        400
+      );
     }
 
     const trimmedTitle = title.trim();
-    const calendarColour = colour || '#7287fd';
+    const calendarColour = colour || "#7287fd";
 
-    const insertedCalendar = await db.insert(calendarTable)
-                                 .values({
-                                   owner: payload.id,
-                                   title: trimmedTitle,
-                                   colour: calendarColour,
-                                 })
-                                 .returning({
-                                   id: calendarTable.id,
-                                   title: calendarTable.title,
-                                   colour: calendarTable.colour,
-                                 });
+    const insertedCalendar = await db
+      .insert(calendarTable)
+      .values({
+        owner: payload.id,
+        title: trimmedTitle,
+        colour: calendarColour,
+      })
+      .returning({
+        id: calendarTable.id,
+        title: calendarTable.title,
+        colour: calendarTable.colour,
+      });
 
     if (!insertedCalendar || insertedCalendar.length === 0) {
-      return c.json({success: false, error: 'Failed to create calendar'}, 500);
+      return c.json(
+        { success: false, error: "Failed to create calendar" },
+        500
+      );
     }
 
-    return c.json({success: true, calendar: insertedCalendar[0]}, 201);
+    return c.json({ success: true, calendar: insertedCalendar[0] }, 201);
   } catch (error) {
-    console.log('Create calendar error:', error);
-    return c.json({success: false, error: 'Internal server error'}, 500);
+    console.log("Create calendar error:", error);
+    return c.json({ success: false, error: "Internal server error" }, 500);
   }
 });
 
 // fetch calendar, task, events, members, group settings
-app.get('/', async (c) => {
-  const {calendarId} = c.req.query();
-  const payload = c.get('jwtPayload');
+app.get("/", async (c) => {
+  const { calendarId } = c.req.query();
+  const payload = c.get("jwtPayload");
 
   const calendar = await db.query.calendarTable.findFirst({
     where: eq(calendarTable.id, calendarId),
@@ -78,12 +92,20 @@ app.get('/', async (c) => {
         with: {
           tasks: {
             with: {
-              timestamps: true,
+              timestamps: {
+                with: {
+                  timestamp: true,
+                },
+              },
             },
           },
           events: {
             with: {
-              timestamps: true,
+              timestamps: {
+                with: {
+                  timestamp: true,
+                },
+              },
             },
           },
         },
@@ -92,19 +114,51 @@ app.get('/', async (c) => {
   });
 
   if (!calendar)
-    return c.json({success: false, error: 'Calender not found'}, 404);
+    return c.json({ success: false, error: "Calender not found" }, 404);
   // TODO: add for group members too
   // look for owner
   if (isOwner(calendar?.owner?.id, payload.id))
     return c.json(
-        {success: false, error: 'User isn\'t authorized to get calendar'}, 401);
+      { success: false, error: "User isn't authorized to get calendar" },
+      401
+    );
 
-  return c.json(calendar);
+  // If this is a group calendar, add the user's permission and owner info to members
+  let responseCalendar: typeof calendar & { userPermission?: string } = {
+    ...calendar,
+  };
+
+  if (calendar.group && calendar.group.members) {
+    // Add isOwner flag to each member
+    const membersWithOwner = calendar.group.members.map((member) => ({
+      ...member,
+      isOwner: member.userId === calendar.owner?.id,
+    }));
+
+    responseCalendar.group = {
+      ...calendar.group,
+      members: membersWithOwner,
+    };
+
+    // Find the user's membership in this group
+    const userMembership = await db.query.memberTable.findFirst({
+      where: and(
+        eq(memberTable.groupId, calendar.group.id),
+        eq(memberTable.userId, payload.id)
+      ),
+    });
+
+    if (userMembership) {
+      responseCalendar.userPermission = userMembership.permission;
+    }
+  }
+
+  return c.json(responseCalendar);
 });
 
-app.get('/category', async (c) => {
-  const {calendarId, categoryId} = c.req.query();
-  const payload = c.get('jwtPayload');
+app.get("/category", async (c) => {
+  const { calendarId, categoryId } = c.req.query();
+  const payload = c.get("jwtPayload");
 
   const calendar = await db.query.calendarTable.findFirst({
     where: eq(calendarTable.id, calendarId),
@@ -118,27 +172,28 @@ app.get('/category', async (c) => {
     },
   });
 
-  if (!calendar?.id) return c.json({success: false});
+  if (!calendar?.id) return c.json({ success: false });
   if (!isOwner(calendar.owner, payload.id)) {
     return c.json(
-        {
-          success: false,
-          error: 'User isn\'t authorized to get category from calendar',
-        },
-        401);
+      {
+        success: false,
+        error: "User isn't authorized to get category from calendar",
+      },
+      401
+    );
   }
 
   console.log(calendar);
 
   //   TODO: filter for the category
 
-  return c.text('aosidjoaijsd');
+  return c.text("aosidjoaijsd");
 });
 
-app.post('/category', async (c) => {
-  const {calendarId} = c.req.query();
-  const {title, colour} = await c.req.json();
-  const payload = c.get('jwtPayload');
+app.post("/category", async (c) => {
+  const { calendarId } = c.req.query();
+  const { title, colour } = await c.req.json();
+  const payload = c.get("jwtPayload");
 
   // need to get the calendar then insert a new category into it
   const calendar = await db.query.calendarTable.findFirst({
@@ -149,68 +204,148 @@ app.post('/category', async (c) => {
     },
   });
 
-  if (!calendar?.id) return c.json({success: false});
+  if (!calendar?.id) return c.json({ success: false });
   if (!isOwner(calendar.owner, payload.id)) {
     return c.json(
-        {success: false, error: 'User isn\'t authorized to get calendar'}, 401);
+      { success: false, error: "User isn't authorized to get calendar" },
+      401
+    );
   }
 
-  const insertedCategory = await db.insert(categoryTable)
-                               .values({
-                                 calendarId: calendar.id,
-                                 title,
-                                 enabled: true,
-                                 colour,
-                               })
-                               .returning({
-                                 id: categoryTable.id,
-                               });
+  const insertedCategory = await db
+    .insert(categoryTable)
+    .values({
+      calendarId: calendar.id,
+      title,
+      enabled: true,
+      colour,
+    })
+    .returning({
+      id: categoryTable.id,
+    });
 
-  if (!insertedCategory) return c.json({success: false});
+  if (!insertedCategory) return c.json({ success: false });
 
-  return c.json({success: true, id: insertedCategory[0].id});
+  return c.json({ success: true, id: insertedCategory[0].id });
 });
 
-app.patch('/category', async (c) => {
-  const {calendarId} = c.req.query();
+app.patch("/category", async (c) => {
+  const { calendarId } = c.req.query();
 
-  const payload = c.get('jwtPayload');
+  const payload = c.get("jwtPayload");
 
-  return c.json({title: 'hi'});
+  return c.json({ title: "hi" });
 });
 
-app.delete('/category', async (c) => {
-  const {calendarId} = c.req.query();
+app.delete("/category", async (c) => {
+  const { calendarId } = c.req.query();
 
-  const payload = c.get('jwtPayload');
-  return c.json({title: 'hi'});
+  const payload = c.get("jwtPayload");
+  return c.json({ title: "hi" });
 });
 
-app.get('/all', async (c) => {
-  const payload = c.get('jwtPayload');
+app.get("/all", async (c) => {
+  const payload = c.get("jwtPayload");
 
-  const allCalendars = await db.query.calendarTable.findMany({
-    where: eq(calendarTable.owner, payload.id),
-    columns: {
-      owner: false,
-    },
+  // Get calendar IDs from groups where user is a member
+  const userMemberships = await db.query.memberTable.findMany({
+    where: eq(memberTable.userId, payload.id),
     with: {
+      group: true,
+    },
+  });
+
+  const groupCalendarIds = userMemberships
+    .map((membership) => membership.group?.calendar_id)
+    .filter((id): id is string => id !== undefined);
+
+  // Query calendars where user is owner OR calendar is in a group where user is a member
+  const allCalendars = await db.query.calendarTable.findMany({
+    where:
+      groupCalendarIds.length > 0
+        ? or(
+            eq(calendarTable.owner, payload.id),
+            inArray(calendarTable.id, groupCalendarIds)
+          )
+        : eq(calendarTable.owner, payload.id),
+    with: {
+      owner: {
+        columns: {
+          password: false,
+        },
+      },
+      group: {
+        with: {
+          members: {
+            with: {
+              user: {
+                columns: {
+                  password: false,
+                },
+              },
+            },
+          },
+        },
+      },
       categories: {
         with: {
-          tasks: true,
-          events: true,
+          tasks: {
+            with: {
+              timestamps: {
+                with: {
+                  timestamp: true,
+                },
+              },
+            },
+          },
+          events: {
+            with: {
+              timestamps: {
+                with: {
+                  timestamp: true,
+                },
+              },
+            },
+          },
         },
       },
     },
   });
 
-  return c.json(allCalendars);
+  // Add isOwner flag to each member in group calendars
+  const calendarsWithOwnerInfo = allCalendars.map((calendar) => {
+    if (calendar.group && calendar.group.members) {
+      return {
+        ...calendar,
+        group: {
+          ...calendar.group,
+          members: calendar.group.members.map((member) => ({
+            ...member,
+            isOwner: member.userId === calendar.owner?.id,
+          })),
+        },
+      };
+    }
+    return calendar;
+  });
+
+  // Sort calendars so "My Calendar" appears first
+  const sortedCalendars = calendarsWithOwnerInfo.sort((a, b) => {
+    if (a.title === "My Calendar" && b.title !== "My Calendar") return -1;
+    if (a.title !== "My Calendar" && b.title === "My Calendar") return 1;
+    return 0;
+  });
+
+  // Remove owner field from response (keep it only for the comparison above)
+  const responseCalendars = sortedCalendars.map(({ owner, ...rest }) => rest);
+
+  return c.json(responseCalendars);
 });
 
 // get all tasks
-app.get('/tasks', async (c) => {
+app.get("/tasks", async (c) => {
   // calendar id passed through
-  const calendarId = '123';
+  const calendarId = "123";
 
   // TODO: it's better to store the calendar in redis then check if anything has
   // changed
@@ -235,33 +370,33 @@ app.get('/tasks', async (c) => {
 
   // fetch from database
 
-  return c.json({title: 'oaijsdoajid'});
+  return c.json({ title: "oaijsdoajid" });
 });
 
 // get specific task
-app.get('/tasks/:id', (c) => {
+app.get("/tasks/:id", (c) => {
   // fetch from database
 
-  return c.json({title: 'oaijsdoajid'});
+  return c.json({ title: "oaijsdoajid" });
 });
 
 // add task
-app.post('/tasks', (c) => {
+app.post("/tasks", (c) => {
   const taskData = c.res.json();
 
-  return c.json({title: 'sd'});
+  return c.json({ title: "sd" });
 });
 
 // remove task
-app.delete('/tasks');
+app.delete("/tasks");
 
 // update task
-app.patch('/task');
+app.patch("/task");
 
 // create event
-app.post('/event', async (c) => {
+app.post("/event", async (c) => {
   try {
-    const payload = c.get('jwtPayload');
+    const payload = c.get("jwtPayload");
     const body = await c.req.json();
     const {
       id: eventId,
@@ -277,17 +412,18 @@ app.post('/event', async (c) => {
       timestamps,
     } = body;
 
-    if (!title || typeof title !== 'string' || title.trim().length === 0) {
+    if (!title || typeof title !== "string" || title.trim().length === 0) {
       return c.json(
-          {
-            success: false,
-            error: 'Title is required and must be a non-empty string!'
-          },
-          400);
+        {
+          success: false,
+          error: "Title is required and must be a non-empty string!",
+        },
+        400
+      );
     }
 
-    if (!categoryId || typeof categoryId !== 'string') {
-      return c.json({success: false, error: 'Category ID is required!'}, 400);
+    if (!categoryId || typeof categoryId !== "string") {
+      return c.json({ success: false, error: "Category ID is required!" }, 400);
     }
 
     // Verify user has access to the category (through calendar ownership)
@@ -304,16 +440,17 @@ app.post('/event', async (c) => {
     });
 
     if (!category) {
-      return c.json({success: false, error: 'Category not found'}, 404);
+      return c.json({ success: false, error: "Category not found" }, 404);
     }
 
     if (!isOwner(category.calendar.owner, payload.id)) {
       return c.json(
-          {
-            success: false,
-            error: 'User isn\'t authorized to create events in this category'
-          },
-          401);
+        {
+          success: false,
+          error: "User isn't authorized to create events in this category",
+        },
+        401
+      );
     }
 
     // Create the event
@@ -331,18 +468,20 @@ app.post('/event', async (c) => {
 
     // Handle dueDate - convert string to Date if needed, or keep as null
     if (dueDate) {
-      eventValues.dueDate = typeof dueDate === 'string' ? dueDate : dueDate;
+      eventValues.dueDate = typeof dueDate === "string" ? dueDate : dueDate;
     } else {
       eventValues.dueDate = null;
     }
 
-    const insertedEvent =
-        await db.insert(eventTable).values(eventValues).returning({
-          id: eventTable.id,
-        });
+    const insertedEvent = await db
+      .insert(eventTable)
+      .values(eventValues)
+      .returning({
+        id: eventTable.id,
+      });
 
     if (!insertedEvent || insertedEvent.length === 0) {
-      return c.json({success: false, error: 'Failed to create event'}, 500);
+      return c.json({ success: false, error: "Failed to create event" }, 500);
     }
 
     const newEventId = insertedEvent[0].id;
@@ -353,19 +492,20 @@ app.post('/event', async (c) => {
         if (ts.start && ts.end) {
           // Convert to Date objects if they're strings
           const startDate =
-              typeof ts.start === 'string' ? new Date(ts.start) : ts.start;
+            typeof ts.start === "string" ? new Date(ts.start) : ts.start;
           const endDate =
-              typeof ts.end === 'string' ? new Date(ts.end) : ts.end;
+            typeof ts.end === "string" ? new Date(ts.end) : ts.end;
 
           if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
-            continue;  // Skip invalid dates
+            continue; // Skip invalid dates
           }
 
           // Check if timestamp already exists
           let existingTimestamp = await db.query.timestampTable.findFirst({
-            where:
-                and(eq(timestampTable.start, startDate),
-                    eq(timestampTable.end, endDate)),
+            where: and(
+              eq(timestampTable.start, startDate),
+              eq(timestampTable.end, endDate)
+            ),
           });
 
           let timestampId;
@@ -373,21 +513,23 @@ app.post('/event', async (c) => {
             timestampId = existingTimestamp.id;
           } else {
             // Create new timestamp - timestamp fields need Date objects
-            const [newTimestamp] = await db.insert(timestampTable)
-                                       .values({
-                                         start: startDate,
-                                         end: endDate,
-                                       })
-                                       .returning({id: timestampTable.id});
+            const [newTimestamp] = await db
+              .insert(timestampTable)
+              .values({
+                start: startDate,
+                end: endDate,
+              })
+              .returning({ id: timestampTable.id });
             timestampId = newTimestamp?.id;
           }
 
           if (timestampId) {
             // Check if mapping already exists
             const existingMapping = await db.query.timestampMap.findFirst({
-              where:
-                  and(eq(timestampMap.id, newEventId),
-                      eq(timestampMap.timestampId, timestampId)),
+              where: and(
+                eq(timestampMap.id, newEventId),
+                eq(timestampMap.timestampId, timestampId)
+              ),
             });
 
             if (!existingMapping) {
@@ -402,7 +544,7 @@ app.post('/event', async (c) => {
     } else if (date && startHour !== undefined && endHour !== undefined) {
       // Create timestamp from date, startHour, endHour
       // Assuming date is ISO format and hours are numbers
-      const baseDate = typeof date === 'string' ? new Date(date) : date;
+      const baseDate = typeof date === "string" ? new Date(date) : date;
 
       if (isNaN(baseDate.getTime())) {
         // Invalid date, skip timestamp creation
@@ -416,9 +558,10 @@ app.post('/event', async (c) => {
 
         // Check if timestamp already exists
         let existingTimestamp = await db.query.timestampTable.findFirst({
-          where:
-              and(eq(timestampTable.start, startDate),
-                  eq(timestampTable.end, endDate)),
+          where: and(
+            eq(timestampTable.start, startDate),
+            eq(timestampTable.end, endDate)
+          ),
         });
 
         let timestampId;
@@ -426,21 +569,23 @@ app.post('/event', async (c) => {
           timestampId = existingTimestamp.id;
         } else {
           // Create new timestamp - timestamp fields need Date objects
-          const [newTimestamp] = await db.insert(timestampTable)
-                                     .values({
-                                       start: startDate,
-                                       end: endDate,
-                                     })
-                                     .returning({id: timestampTable.id});
+          const [newTimestamp] = await db
+            .insert(timestampTable)
+            .values({
+              start: startDate,
+              end: endDate,
+            })
+            .returning({ id: timestampTable.id });
           timestampId = newTimestamp?.id;
         }
 
         if (timestampId) {
           // Check if mapping already exists
           const existingMapping = await db.query.timestampMap.findFirst({
-            where:
-                and(eq(timestampMap.id, newEventId),
-                    eq(timestampMap.timestampId, timestampId)),
+            where: and(
+              eq(timestampMap.id, newEventId),
+              eq(timestampMap.timestampId, timestampId)
+            ),
           });
 
           if (!existingMapping) {
@@ -453,21 +598,21 @@ app.post('/event', async (c) => {
       }
     }
 
-    return c.json({success: true, id: newEventId}, 201);
+    return c.json({ success: true, id: newEventId }, 201);
   } catch (error) {
-    console.log('Create event error:', error);
-    return c.json({success: false, error: 'Internal server error'}, 500);
+    console.log("Create event error:", error);
+    return c.json({ success: false, error: "Internal server error" }, 500);
   }
 });
 
 // update event
-app.patch('/event', async (c) => {
+app.patch("/event", async (c) => {
   try {
-    const {eventId} = c.req.query();
-    const payload = c.get('jwtPayload');
+    const { eventId } = c.req.query();
+    const payload = c.get("jwtPayload");
 
-    if (!eventId || typeof eventId !== 'string') {
-      return c.json({success: false, error: 'Event ID is required'}, 400);
+    if (!eventId || typeof eventId !== "string") {
+      return c.json({ success: false, error: "Event ID is required" }, 400);
     }
 
     const body = await c.req.json();
@@ -502,24 +647,25 @@ app.patch('/event', async (c) => {
     });
 
     if (!event) {
-      return c.json({success: false, error: 'Event not found'}, 404);
+      return c.json({ success: false, error: "Event not found" }, 404);
     }
 
     if (!isOwner(event.category.calendar.owner, payload.id)) {
       return c.json(
-          {
-            success: false,
-            error: 'User isn\'t authorized to update this event'
-          },
-          401);
+        {
+          success: false,
+          error: "User isn't authorized to update this event",
+        },
+        401
+      );
     }
 
     // Build update object
     const updateData: any = {};
     if (title !== undefined) {
-      if (typeof title === 'string' && title.trim().length > 0) {
+      if (typeof title === "string" && title.trim().length > 0) {
         updateData.title = title.trim();
-      } else if (title === null || title === '') {
+      } else if (title === null || title === "") {
         updateData.title = null;
       }
     }
@@ -548,16 +694,17 @@ app.patch('/event', async (c) => {
       });
 
       if (!newCategory) {
-        return c.json({success: false, error: 'Category not found'}, 404);
+        return c.json({ success: false, error: "Category not found" }, 404);
       }
 
       if (!isOwner(newCategory.calendar.owner, payload.id)) {
         return c.json(
-            {
-              success: false,
-              error: 'User isn\'t authorized to use this category'
-            },
-            401);
+          {
+            success: false,
+            error: "User isn't authorized to use this category",
+          },
+          401
+        );
       }
 
       updateData.categoryId = categoryId;
@@ -565,9 +712,10 @@ app.patch('/event', async (c) => {
 
     // Update event
     if (Object.keys(updateData).length > 0) {
-      await db.update(eventTable)
-          .set(updateData)
-          .where(eq(eventTable.id, eventId));
+      await db
+        .update(eventTable)
+        .set(updateData)
+        .where(eq(eventTable.id, eventId));
     }
 
     // Handle timestamps update
@@ -581,19 +729,20 @@ app.patch('/event', async (c) => {
           if (ts.start && ts.end) {
             // Convert to Date objects if they're strings
             const startDate =
-                typeof ts.start === 'string' ? new Date(ts.start) : ts.start;
+              typeof ts.start === "string" ? new Date(ts.start) : ts.start;
             const endDate =
-                typeof ts.end === 'string' ? new Date(ts.end) : ts.end;
+              typeof ts.end === "string" ? new Date(ts.end) : ts.end;
 
             if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
-              continue;  // Skip invalid dates
+              continue; // Skip invalid dates
             }
 
             // Check if timestamp already exists
             let existingTimestamp = await db.query.timestampTable.findFirst({
-              where:
-                  and(eq(timestampTable.start, startDate),
-                      eq(timestampTable.end, endDate)),
+              where: and(
+                eq(timestampTable.start, startDate),
+                eq(timestampTable.end, endDate)
+              ),
             });
 
             let timestampId;
@@ -601,21 +750,23 @@ app.patch('/event', async (c) => {
               timestampId = existingTimestamp.id;
             } else {
               // Create new timestamp - timestamp fields need Date objects
-              const [newTimestamp] = await db.insert(timestampTable)
-                                         .values({
-                                           start: startDate,
-                                           end: endDate,
-                                         })
-                                         .returning({id: timestampTable.id});
+              const [newTimestamp] = await db
+                .insert(timestampTable)
+                .values({
+                  start: startDate,
+                  end: endDate,
+                })
+                .returning({ id: timestampTable.id });
               timestampId = newTimestamp?.id;
             }
 
             if (timestampId) {
               // Check if mapping already exists
               const existingMapping = await db.query.timestampMap.findFirst({
-                where:
-                    and(eq(timestampMap.id, eventId),
-                        eq(timestampMap.timestampId, timestampId)),
+                where: and(
+                  eq(timestampMap.id, eventId),
+                  eq(timestampMap.timestampId, timestampId)
+                ),
               });
 
               if (!existingMapping) {
@@ -629,7 +780,7 @@ app.patch('/event', async (c) => {
         }
       } else if (date && startHour !== undefined && endHour !== undefined) {
         // Create timestamp from date, startHour, endHour
-        const baseDate = typeof date === 'string' ? new Date(date) : date;
+        const baseDate = typeof date === "string" ? new Date(date) : date;
 
         if (isNaN(baseDate.getTime())) {
           // Invalid date, skip timestamp creation
@@ -641,9 +792,10 @@ app.patch('/event', async (c) => {
 
           // Check if timestamp already exists
           let existingTimestamp = await db.query.timestampTable.findFirst({
-            where:
-                and(eq(timestampTable.start, startDate),
-                    eq(timestampTable.end, endDate)),
+            where: and(
+              eq(timestampTable.start, startDate),
+              eq(timestampTable.end, endDate)
+            ),
           });
 
           let timestampId;
@@ -651,21 +803,23 @@ app.patch('/event', async (c) => {
             timestampId = existingTimestamp.id;
           } else {
             // Create new timestamp - timestamp fields need Date objects
-            const [newTimestamp] = await db.insert(timestampTable)
-                                       .values({
-                                         start: startDate,
-                                         end: endDate,
-                                       })
-                                       .returning({id: timestampTable.id});
+            const [newTimestamp] = await db
+              .insert(timestampTable)
+              .values({
+                start: startDate,
+                end: endDate,
+              })
+              .returning({ id: timestampTable.id });
             timestampId = newTimestamp?.id;
           }
 
           if (timestampId) {
             // Check if mapping already exists
             const existingMapping = await db.query.timestampMap.findFirst({
-              where:
-                  and(eq(timestampMap.id, eventId),
-                      eq(timestampMap.timestampId, timestampId)),
+              where: and(
+                eq(timestampMap.id, eventId),
+                eq(timestampMap.timestampId, timestampId)
+              ),
             });
 
             if (!existingMapping) {
@@ -679,23 +833,23 @@ app.patch('/event', async (c) => {
       }
     }
 
-    return c.json({success: true});
+    return c.json({ success: true });
   } catch (error) {
-    console.log('Update event error:', error);
-    return c.json({success: false, error: 'Internal server error'}, 500);
+    console.log("Update event error:", error);
+    return c.json({ success: false, error: "Internal server error" }, 500);
   }
 });
 
 // delete event
-app.delete('/event', async (c) => {
+app.delete("/event", async (c) => {
   try {
-    const {eventId} = c.req.query();
-    const payload = c.get('jwtPayload');
+    const { eventId } = c.req.query();
+    const payload = c.get("jwtPayload");
 
     if (eventId) {
       // Delete specific event
-      if (typeof eventId !== 'string') {
-        return c.json({success: false, error: 'Invalid event ID'}, 400);
+      if (typeof eventId !== "string") {
+        return c.json({ success: false, error: "Invalid event ID" }, 400);
       }
 
       // Verify event exists and user has access
@@ -716,30 +870,32 @@ app.delete('/event', async (c) => {
       });
 
       if (!event) {
-        return c.json({success: false, error: 'Event not found'}, 404);
+        return c.json({ success: false, error: "Event not found" }, 404);
       }
 
       if (!isOwner(event.category.calendar.owner, payload.id)) {
         return c.json(
-            {
-              success: false,
-              error: 'User isn\'t authorized to delete this event'
-            },
-            401);
+          {
+            success: false,
+            error: "User isn't authorized to delete this event",
+          },
+          401
+        );
       }
 
       // Delete event (cascade will handle timestamp mappings)
       await db.delete(eventTable).where(eq(eventTable.id, eventId));
 
-      return c.json({success: true});
+      return c.json({ success: true });
     } else {
       // Clear all events - need calendarId to verify ownership
-      const {calendarId} = c.req.query();
+      const { calendarId } = c.req.query();
 
-      if (!calendarId || typeof calendarId !== 'string') {
+      if (!calendarId || typeof calendarId !== "string") {
         return c.json(
-            {success: false, error: 'Calendar ID is required to clear events'},
-            400);
+          { success: false, error: "Calendar ID is required to clear events" },
+          400
+        );
       }
 
       // Verify calendar ownership
@@ -766,31 +922,33 @@ app.delete('/event', async (c) => {
       });
 
       if (!calendar) {
-        return c.json({success: false, error: 'Calendar not found'}, 404);
+        return c.json({ success: false, error: "Calendar not found" }, 404);
       }
 
       if (!isOwner(calendar.owner, payload.id)) {
         return c.json(
-            {
-              success: false,
-              error: 'User isn\'t authorized to clear events from this calendar'
-            },
-            401);
+          {
+            success: false,
+            error: "User isn't authorized to clear events from this calendar",
+          },
+          401
+        );
       }
 
       // Delete all events in this calendar's categories
       const categoryIds = calendar.categories.map((cat) => cat.id);
       if (categoryIds.length > 0) {
         // Delete events (cascade will handle timestamp mappings)
-        await db.delete(eventTable)
-            .where(inArray(eventTable.categoryId, categoryIds));
+        await db
+          .delete(eventTable)
+          .where(inArray(eventTable.categoryId, categoryIds));
       }
 
-      return c.json({success: true});
+      return c.json({ success: true });
     }
   } catch (error) {
-    console.log('Delete event error:', error);
-    return c.json({success: false, error: 'Internal server error'}, 500);
+    console.log("Delete event error:", error);
+    return c.json({ success: false, error: "Internal server error" }, 500);
   }
 });
 

@@ -1,22 +1,27 @@
-import {Hono} from 'hono';
-import register from './routes/auth/auth';
-import {jwt} from 'hono/jwt';
-import {env} from './config/env';
-import test from './routes/api/test';
-import Calendar from './routes/api/calendar';
-import User from './routes/api/user';
+import { Hono } from "hono";
+import register from "./routes/auth/auth";
+import { jwt } from "hono/jwt";
+import { env } from "./config/env";
+import test from "./routes/api/test";
+import Calendar from "./routes/api/calendar";
+import User from "./routes/api/user";
+import Group from "./routes/api/group";
 
 const app = new Hono();
 
-app.use('/api/*', jwt({
-          secret: env.ACCESS_TOKEN_SECRET,
-        }));
+app.use(
+  "/api/*",
+  jwt({
+    secret: env.ACCESS_TOKEN_SECRET,
+  })
+);
 
-app.route('/auth', register);
-app.route('/api/calendar', Calendar);
-app.route('/api/user', User);
+app.route("/auth", register);
+app.route("/api/calendar", Calendar);
+app.route("/api/user", User);
+app.route("/api/group", Group);
 
-app.get('/', (c) => c.json({message: 'Hello, Hono!'}));
+app.get("/", (c) => c.json({ message: "Hello, Hono!" }));
 
 export default {
   port: 3000,
